@@ -173,7 +173,7 @@ class DashboardOverview(BaseModel):
     error_rate: float
     total_local_calls: int
     total_local_tokens: int
-    cost_forecast: list[CostForecast]
+    cost_forecast: list[CostForecast] = []
 
 
 # ── Local LLM schemas ─────────────────────────────────────

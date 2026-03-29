@@ -3,14 +3,14 @@ backend/app/main.py
 TokenOps v1.0 — FastAPI entry point.
 """
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from loguru import logger
 
 from .config import settings
-from .database import create_tables, SessionLocal
+from .database import create_tables, SessionLocal, get_db
 from .seed import seed_pricing
 from .routers import (
     calls, projects, dashboard, model_pricing,
@@ -51,7 +51,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────
 app.include_router(calls.router)
 app.include_router(projects.router)
 app.include_router(dashboard.router)
@@ -62,13 +61,20 @@ app.include_router(pricing_sync.router)
 app.include_router(agent_analytics.router)
 
 
-# ── Dashboard (single HTML) ──────────────────────────
 @app.get("/dashboard", response_class=HTMLResponse, tags=["meta"])
 def serve_dashboard():
     html_path = STATIC_DIR / "dashboard.html"
     if html_path.exists():
         return HTMLResponse(html_path.read_text())
-    return HTMLResponse("<h1>Dashboard not found</h1><p>Expected at backend/static/dashboard.html</p>", status_code=404)
+    return HTMLResponse("<h1>Dashboard not found</h1>", status_code=404)
+
+
+@app.post("/seed-demo", tags=["meta"])
+def seed_demo_data(db=Depends(get_db)):
+    """Generate realistic demo data for dashboard screenshots."""
+    from .seed_demo import seed_demo
+    result = seed_demo(db, days=30, calls_per_day=40)
+    return {"status": "ok", **result}
 
 
 @app.get("/health", tags=["meta"])
