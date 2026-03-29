@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenOps — LLM Cost Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0c0c0f;--surface:#141418;--surface2:#1a1a20;--border:#2a2a32;
+  --text:#e4e4e7;--text2:#a1a1aa;--text3:#71717a;
+  --amber:#f59e0b;--amber2:#d97706;--amber-bg:rgba(245,158,11,.08);
+  --green:#22c55e;--red:#ef4444;--blue:#3b82f6;--purple:#8b5cf6;--cyan:#06b6d4;--pink:#ec4899;
+  --radius:8px;--mono:'JetBrains Mono',monospace;--sans:'DM Sans',system-ui,sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;overflow-x:hidden}
+a{color:var(--amber);text-decoration:none}
+
+/* Layout */
+.shell{max-width:1400px;margin:0 auto;padding:24px 32px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+header h1{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--amber);letter-spacing:-.5px}
+header h1 span{color:var(--text3);font-weight:400}
+.meta{font-size:12px;color:var(--text3);font-family:var(--mono)}
+.meta .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.meta .live{background:var(--green);box-shadow:0 0 8px rgba(34,197,94,.4)}
+.meta .off{background:var(--red)}
+
+/* Tabs */
+.tabs{display:flex;gap:2px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tab{padding:10px 18px;font-size:13px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--amber);border-bottom-color:var(--amber)}
+
+/* Cards */
+.cards{display:grid;gap:16px;margin-bottom:24px}
+.cards-4{grid-template-columns:repeat(4,1fr)}
+.cards-3{grid-template-columns:repeat(3,1fr)}
+.cards-2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:900px){.cards-4,.cards-3{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.card-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.card-value{font-size:28px;font-weight:700;font-family:var(--mono);color:var(--text)}
+.card-sub{font-size:12px;color:var(--text3);margin-top:4px}
+.card-trend{font-size:12px;font-weight:600;margin-top:4px}
+.card-trend.up{color:var(--red)}.card-trend.down{color:var(--green)}
+
+/* Chart container */
+.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.chart-title{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:16px}
+.chart-row{display:grid;gap:16px;grid-template-columns:1fr 1fr;margin-bottom:16px}
+@media(max-width:900px){.chart-row{grid-template-columns:1fr}}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);font-weight:500}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text2)}
+.tbl tr:hover td{background:var(--amber-bg)}
+.tbl .mono{font-family:var(--mono);font-size:12px}
+.tbl .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
+.tbl .tag-local{background:rgba(34,197,94,.12);color:var(--green)}
+.tbl .tag-cloud{background:rgba(59,130,246,.12);color:var(--blue)}
+.tbl .tag-err{background:rgba(239,68,68,.12);color:var(--red)}
+
+/* Misc */
+.empty{text-align:center;padding:60px 20px;color:var(--text3);font-size:14px}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:8px}
+.loading{text-align:center;padding:80px;color:var(--text3)}
+.loading::after{content:'';display:block;width:24px;height:24px;margin:16px auto;border:2px solid var(--border);border-top-color:var(--amber);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:12px;font-size:11px;font-family:var(--mono);background:var(--surface2);border:1px solid var(--border)}
+.color-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <h1>TokenOps <span>/ dashboard</span></h1>
+    <div class="meta" id="status"><span class="dot off"></span>connecting...</div>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="agents">Agents</div>
+    <div class="tab" data-tab="projects">Projects</div>
+    <div class="tab" data-tab="models">Models</div>
+    <div class="tab" data-tab="local">Local LLM</div>
+  </div>
+
+  <div id="content"><div class="loading">Loading dashboard...</div></div>
+</div>
+
+<script>
+const API = window.location.origin;
+const COLORS = ['#f59e0b','#3b82f6','#8b5cf6','#ec4899','#06b6d4','#22c55e','#ef4444','#f97316','#14b8a6','#a855f7'];
+let data = null;
+let agents = null;
+let matrix = null;
+let currentTab = 'overview';
+
+// ── Fetch ────────────────────────────────────────────
+async function load() {
+  try {
+    const [ovR, agR, mtR] = await Promise.allSettled([
+      fetch(`${API}/dashboard/overview?days=30`),
+      fetch(`${API}/analytics/agents?days=30`),
+      fetch(`${API}/analytics/project-agents?days=30`),
+    ]);
+    if (ovR.status==='fulfilled' && ovR.value.ok) data = await ovR.value.json();
+    if (agR.status==='fulfilled' && agR.value.ok) agents = await agR.value.json();
+    if (mtR.status==='fulfilled' && mtR.value.ok) matrix = await mtR.value.json();
+
+    document.getElementById('status').innerHTML = data
+      ? `<span class="dot live"></span>connected · v1.0`
+      : `<span class="dot off"></span>no data`;
+    render();
+  } catch(e) {
+    document.getElementById('status').innerHTML = `<span class="dot off"></span>offline`;
+    document.getElementById('content').innerHTML = `<div class="empty">Cannot reach API at ${API}<br><br>Start backend: <code style="color:var(--amber)">uvicorn app.main:app --port 8000</code></div>`;
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────
+document.getElementById('tabs').addEventListener('click', e => {
+  const t = e.target.closest('.tab');
+  if (!t) return;
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  currentTab = t.dataset.tab;
+  render();
+});
+
+// ── Helpers ──────────────────────────────────────────
+const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+const usd = n => n >= 1 ? '$'+n.toFixed(2) : n >= 0.01 ? '$'+n.toFixed(3) : '$'+n.toFixed(4);
+const pct = n => (n>=0?'+':'')+n.toFixed(1)+'%';
+let charts = {};
+
+function makeChart(id, cfg) {
+  setTimeout(() => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new Chart(el, cfg);
+  }, 0);
+}
+
+// ── Render ───────────────────────────────────────────
+function render() {
+  const c = document.getElementById('content');
+  if (!data) { c.innerHTML = '<div class="empty">No data yet. Log some API calls to see analytics.</div>'; return; }
+  const fn = {overview:renderOverview, agents:renderAgents, projects:renderProjects, models:renderModels, local:renderLocal};
+  (fn[currentTab] || fn.overview)(c);
+}
+
+// ── OVERVIEW TAB ─────────────────────────────────────
+function renderOverview(c) {
+  const d = data;
+  const trendClass = d.cost_trend_pct > 0 ? 'up' : 'down';
+  c.innerHTML = `
+    <div class="cards cards-4">
+      <div class="card">
+        <div class="card-label">Monthly Cost</div>
+        <div class="card-value">${usd(d.total_cost_month)}</div>
+        <div class="card-trend ${trendClass}">${pct(d.cost_trend_pct)} vs prev</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Total Tokens</div>
+        <div class="card-value">${fmt(d.total_tokens_month)}</div>
+        <div class="card-sub">${fmt(d.total_local_tokens)} local</div>
+      </div>
+      <div class="card">
+        <div class="card-label">API Calls</div>
+        <div class="card-value">${fmt(d.total_calls_month)}</div>
+        <div class="card-sub">${fmt(d.total_local_calls)} local</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Avg Cost / Call</div>
+        <div class="card-value">${usd(d.avg_cost_per_call)}</div>
+        <div class="card-sub">${d.error_rate.toFixed(1)}% error rate</div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Daily Cost (30d)</div>
+      <canvas id="ch-daily" height="200"></canvas>
+    </div>
+    <div class="chart-row">
+      <div class="chart-wrap">
+        <div class="chart-title">Cost by Provider</div>
+        <canvas id="ch-provider" height="220"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">Cost by API Type</div>
+        <canvas id="ch-apitype" height="220"></canvas>
+      </div>
+    </div>
+    ${d.agent_stats.length ? `
+    <div class="chart-wrap">
+      <div class="chart-title">Agent Breakdown</div>
+      <table class="tbl">
+        <tr><th>Agent</th><th>Calls</th><th>Tokens</th><th>Cost</th><th>Top Model</th><th>Error Rate</th></tr>
+        ${d.agent_stats.map(a => `<tr>
+          <td><strong>${a.agent}</strong></td>
+          <td class="mono">${fmt(a.calls)}</td>
+          <td class="mono">${fmt(a.tokens)}</td>
+          <td class="mono">${usd(a.cost)}</td>
+          <td class="mono" style="font-size:11px">${a.top_model||'-'}</td>
+          <td>${a.error_rate>5?`<span class="tag tag-err">${a.error_rate}%</span>`:a.error_rate+'%'}</td>
+        </tr>`).join('')}
+      </table>
+    </div>` : ''}
+  `;
+
+  // Daily chart
+  makeChart('ch-daily', {
+    type:'line',
+    data:{
+      labels: d.daily_breakdown.map(x=>x.date.slice(5)),
+      datasets:[{
+        label:'Cost ($)', data:d.daily_breakdown.map(x=>x.cost),
+        borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,.1)',
+        fill:true, tension:.3, pointRadius:0, borderWidth:2
+      }]
+    },
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{
+      x:{grid:{color:'#1a1a20'},ticks:{color:'#71717a',font:{size:10}}},
+      y:{grid:{color:'#1a1a20'},ticks:{color:'#71717a',font:{size:10},callback:v=>'$'+v}}
+    }}
+  });
+
+  // Provider pie
+  if (d.provider_breakdown.length) {
+    makeChart('ch-provider', {
+      type:'doughnut',
+      data:{
+        labels:d.provider_breakdown.map(x=>x.provider),
+        datasets:[{data:d.provider_breakdown.map(x=>x.cost),backgroundColor:COLORS.slice(0,d.provider_breakdown.length),borderWidth:0}]
+      },
+      options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#a1a1aa',font:{size:11}}}}}
+    });
+  }
+
+  // API type pie
+  if (d.api_type_breakdown.length) {
+    makeChart('ch-apitype', {
+      type:'doughnut',
+      data:{
+        labels:d.api_type_breakdown.map(x=>x.api_type),
+        datasets:[{data:d.api_type_breakdown.map(x=>x.cost),backgroundColor:['#f59e0b','#8b5cf6','#ec4899','#06b6d4','#22c55e'],borderWidth:0}]
+      },
+      options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#a1a1aa',font:{size:11}}}}}
+    });
+  }
+}
+
+// ── AGENTS TAB ───────────────────────────────────────
+function renderAgents(c) {
+  const ag = agents || data.agent_stats || [];
+  if (!ag.length) { c.innerHTML = '<div class="empty">No agent data. Set agent names when logging calls.</div>'; return; }
+
+  const top = ag[0];
+  c.innerHTML = `
+    <div class="cards cards-3">
+      <div class="card">
+        <div class="card-label">Total Agents</div>
+        <div class="card-value">${ag.length}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Most Expensive</div>
+        <div class="card-value">${top.agent}</div>
+        <div class="card-sub">${usd(top.total_cost_usd||top.cost)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Total Agent Cost</div>
+        <div class="card-value">${usd(ag.reduce((s,a)=>s+(a.total_cost_usd||a.cost),0))}</div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-wrap">
+        <div class="chart-title">Cost per Agent</div>
+        <canvas id="ch-agent-cost" height="280"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">Token Usage per Agent</div>
+        <canvas id="ch-agent-tok" height="280"></canvas>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Agent Details</div>
+      <table class="tbl">
+        <tr><th>Agent</th><th>Calls</th><th>Input Tok</th><th>Output Tok</th><th>Cost</th><th>Avg Latency</th><th>Errors</th><th>Type</th></tr>
+        ${ag.map(a => `<tr>
+          <td><strong>${a.agent}</strong></td>
+          <td class="mono">${fmt(a.total_calls||a.calls)}</td>
+          <td class="mono">${fmt(a.total_input_tokens||0)}</td>
+          <td class="mono">${fmt(a.total_output_tokens||0)}</td>
+          <td class="mono" style="color:var(--amber)">${usd(a.total_cost_usd||a.cost)}</td>
+          <td class="mono">${Math.round(a.avg_latency_ms||0)}ms</td>
+          <td>${(a.error_count||0)>0?`<span class="tag tag-err">${a.error_count}</span>`:'-'}</td>
+          <td>${(a.local_calls||0)>0?`<span class="tag tag-local">local:${a.local_calls}</span>`:''} ${(a.cloud_calls||0)>0?`<span class="tag tag-cloud">cloud:${a.cloud_calls}</span>`:''}</td>
+        </tr>`).join('')}
+      </table>
+    </div>
+    ${matrix ? renderMatrix() : ''}
+  `;
+
+  makeChart('ch-agent-cost', {
+    type:'bar',
+    data:{
+      labels:ag.map(a=>a.agent),
+      datasets:[{label:'Cost ($)',data:ag.map(a=>a.total_cost_usd||a.cost),backgroundColor:COLORS.slice(0,ag.length),borderRadius:4}]
+    },
+    options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false}},scales:{
+      x:{grid:{color:'#1a1a20'},ticks:{color:'#71717a',callback:v=>'$'+v}},
+      y:{grid:{display:false},ticks:{color:'#a1a1aa',font:{size:11}}}
+    }}
+  });
+
+  makeChart('ch-agent-tok', {
+    type:'bar',
+    data:{
+      labels:ag.map(a=>a.agent),
+      datasets:[
+        {label:'Input',data:ag.map(a=>a.total_input_tokens||0),backgroundColor:'#3b82f6',borderRadius:4},
+        {label:'Output',data:ag.map(a=>a.total_output_tokens||0),backgroundColor:'#8b5cf6',borderRadius:4},
+      ]
+    },
+    options:{indexAxis:'y',responsive:true,plugins:{legend:{labels:{color:'#a1a1aa'}}},scales:{
+      x:{stacked:true,grid:{color:'#1a1a20'},ticks:{color:'#71717a',callback:v=>fmt(v)}},
+      y:{stacked:true,grid:{display:false},ticks:{color:'#a1a1aa',font:{size:11}}}
+    }}
+  });
+}
+
+function renderMatrix() {
+  if (!matrix || !matrix.rows.length) return '';
+  return `
+    <div class="chart-wrap" style="margin-top:16px">
+      <div class="chart-title">Project × Agent Matrix</div>
+      <table class="tbl">
+        <tr><th>Project</th><th>Agent</th><th>Calls</th><th>Tokens</th><th>Cost</th><th>Top Model</th><th>Local/Cloud</th></tr>
+        ${matrix.rows.map(r => `<tr>
+          <td><span class="color-dot" style="background:${r.project_color}"></span> ${r.project_name}</td>
+          <td><strong>${r.agent}</strong></td>
+          <td class="mono">${fmt(r.total_calls)}</td>
+          <td class="mono">${fmt(r.total_tokens)}</td>
+          <td class="mono" style="color:var(--amber)">${usd(r.total_cost_usd)}</td>
+          <td class="mono" style="font-size:11px">${r.top_model||'-'}</td>
+          <td>${r.local_calls?`<span class="tag tag-local">${r.local_calls}</span>`:''} ${r.cloud_calls?`<span class="tag tag-cloud">${r.cloud_calls}</span>`:''}</td>
+        </tr>`).join('')}
+        <tr style="border-top:2px solid var(--amber)">
+          <td colspan="4" style="font-weight:700;color:var(--amber)">TOTAL</td>
+          <td class="mono" style="color:var(--amber);font-weight:700">${usd(matrix.grand_total_cost)}</td>
+          <td class="mono">${fmt(matrix.grand_total_tokens)} tok</td>
+          <td></td>
+        </tr>
+      </table>
+    </div>
+  `;
+}
+
+// ── PROJECTS TAB ─────────────────────────────────────
+function renderProjects(c) {
+  const ps = data.project_stats || [];
+  if (!ps.length) { c.innerHTML = '<div class="empty">No projects yet.</div>'; return; }
+
+  c.innerHTML = `
+    <div class="chart-wrap">
+      <div class="chart-title">Projects</div>
+      <table class="tbl">
+        <tr><th>Project</th><th>Cost</th><th>Budget</th><th>Usage</th><th>Calls</th><th>Tokens</th><th>Local</th><th>Cloud</th></tr>
+        ${ps.map(p => {
+          const pctUsed = p.budget > 0 ? (p.total_cost / p.budget * 100) : 0;
+          const barColor = pctUsed > 90 ? 'var(--red)' : pctUsed > 70 ? 'var(--amber)' : 'var(--green)';
+          return `<tr>
+            <td><span class="color-dot" style="background:${p.color}"></span> <strong>${p.project_name}</strong></td>
+            <td class="mono" style="color:var(--amber)">${usd(p.total_cost)}</td>
+            <td class="mono">${usd(p.budget)}</td>
+            <td>
+              <div style="width:100px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                <div style="width:${Math.min(pctUsed,100)}%;height:100%;background:${barColor};border-radius:3px"></div>
+              </div>
+              <span style="font-size:11px;color:var(--text3)">${pctUsed.toFixed(0)}%</span>
+            </td>
+            <td class="mono">${fmt(p.total_calls)}</td>
+            <td class="mono">${fmt(p.total_tokens)}</td>
+            <td class="mono">${fmt(p.local_calls)}</td>
+            <td class="mono">${fmt(p.cloud_calls)}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Cost by Project</div>
+      <canvas id="ch-proj" height="250"></canvas>
+    </div>
+  `;
+
+  makeChart('ch-proj', {
+    type:'bar',
+    data:{
+      labels:ps.map(p=>p.project_name),
+      datasets:[{data:ps.map(p=>p.total_cost),backgroundColor:ps.map(p=>p.color),borderRadius:4}]
+    },
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{
+      x:{grid:{display:false},ticks:{color:'#a1a1aa'}},
+      y:{grid:{color:'#1a1a20'},ticks:{color:'#71717a',callback:v=>'$'+v}}
+    }}
+  });
+}
+
+// ── MODELS TAB ───────────────────────────────────────
+function renderModels(c) {
+  const ms = data.model_stats || [];
+  if (!ms.length) { c.innerHTML = '<div class="empty">No model data yet.</div>'; return; }
+
+  c.innerHTML = `
+    <div class="chart-wrap">
+      <div class="chart-title">Model Usage</div>
+      <table class="tbl">
+        <tr><th>Model</th><th>Provider</th><th>Type</th><th>Calls</th><th>Input Tok</th><th>Output Tok</th><th>Cost</th><th>Avg Latency</th></tr>
+        ${ms.map(m => `<tr>
+          <td class="mono" style="font-size:12px"><strong>${m.model}</strong></td>
+          <td>${m.provider}</td>
+          <td><span class="tag" style="background:var(--surface2)">${m.api_type}</span> ${m.is_local?'<span class="tag tag-local">local</span>':''}</td>
+          <td class="mono">${fmt(m.calls)}</td>
+          <td class="mono">${fmt(m.input_tokens)}</td>
+          <td class="mono">${fmt(m.output_tokens)}</td>
+          <td class="mono" style="color:var(--amber)">${usd(m.cost)}</td>
+          <td class="mono">${Math.round(m.avg_latency_ms)}ms</td>
+        </tr>`).join('')}
+      </table>
+    </div>
+  `;
+}
+
+// ── LOCAL LLM TAB ────────────────────────────────────
+function renderLocal(c) {
+  const ls = data.local_llm_stats || [];
+  c.innerHTML = `
+    <div class="cards cards-3">
+      <div class="card">
+        <div class="card-label">Local Calls</div>
+        <div class="card-value">${fmt(data.total_local_calls)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Local Tokens</div>
+        <div class="card-value">${fmt(data.total_local_tokens)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Cloud Savings</div>
+        <div class="card-value" style="color:var(--green)">$0.00</div>
+        <div class="card-sub">All local inference is free</div>
+      </div>
+    </div>
+    ${ls.length ? `
+    <div class="chart-wrap">
+      <div class="chart-title">Local Model Usage</div>
+      <table class="tbl">
+        <tr><th>Model</th><th>Provider</th><th>Calls</th><th>Input Tok</th><th>Output Tok</th><th>Avg Latency</th></tr>
+        ${ls.map(m => `<tr>
+          <td class="mono"><strong>${m.model}</strong></td>
+          <td><span class="tag tag-local">${m.provider}</span></td>
+          <td class="mono">${fmt(m.calls)}</td>
+          <td class="mono">${fmt(m.input_tokens)}</td>
+          <td class="mono">${fmt(m.output_tokens)}</td>
+          <td class="mono">${Math.round(m.avg_latency_ms)}ms</td>
+        </tr>`).join('')}
+      </table>
+    </div>` : '<div class="empty">No local LLM calls yet.<br><br>Use <code style="color:var(--amber)">from tokenops.local import LocalLLM</code> to track local inference.</div>'}
+  `;
+}
+
+// ── Init ─────────────────────────────────────────────
+load();
+setInterval(load, 30000); // refresh every 30s
+</script>
+</body>
+</html>
