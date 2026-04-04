@@ -10,9 +10,8 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./tokenops.db}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-prod}
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
     volumes:
-      - ./backend:/app
       - tokenops-db:/app/data
     restart: unless-stopped
     healthcheck:
@@ -20,17 +19,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  frontend:
-    build: ./frontend
-    container_name: tokenops-ui
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    depends_on:
-      - backend
-    restart: unless-stopped
 
 volumes:
   tokenops-db:

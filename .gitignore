@@ -49,3 +49,9 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+-e 
+# Test
+.pytest_cache/
+coverage.xml
+.coverage
+htmlcov/

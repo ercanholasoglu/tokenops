@@ -1,7 +1,7 @@
 name: TokenOps CI
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Install
         working-directory: backend
         run: pip install -r requirements.txt
@@ -21,7 +21,7 @@ jobs:
         run: pytest tests/ -v
         env:
           DATABASE_URL: sqlite:///./test.db
-          SECRET_KEY: test-secret-key
+          SECRET_KEY: test-secret-key-ci-runner-32chars!
           ENVIRONMENT: development
 
   sdk-test:
@@ -30,23 +30,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install SDK
-        working-directory: sdk
-        run: pip install -e ".[dev]"
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install httpx pydantic loguru sqlalchemy pytest
+          cd sdk && pip install -e .
       - name: Test
         working-directory: sdk
         run: pytest tests/ -v
-
-  frontend-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Build
-        working-directory: frontend
-        run: npm install && npm run build
-        env:
-          VITE_API_URL: http://localhost:8000
