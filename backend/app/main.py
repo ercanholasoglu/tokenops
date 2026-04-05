@@ -17,7 +17,8 @@ from .routers import (
     provider_keys, local_llm, pricing_sync, agent_analytics,
 )
 
-STATIC_DIR = Path(__file__).parent.parent / "static"
+import os
+STATIC_DIR = Path(os.environ.get("TOKENOPS_STATIC_DIR", Path(__file__).parent.parent / "static"))
 
 
 @asynccontextmanager
